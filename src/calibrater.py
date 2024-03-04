@@ -1,67 +1,5 @@
-#!/usr/bin/env python3
-
 import numpy as np
 import cv2
-from multiprocessing import Queue, Process, Pipe
-from multiprocessing.connection import Connection
-import sys
-from ultralytics import YOLO
-import argparse
-
-
-class Tracker:
-
-    def __init__(self, model: YOLO, device=0):
-        self.model = model
-        self.device = device
-        self.queue = Queue(20)
-
-    def push_frame(self, frame):
-        """
-        queue a new frame to be processed
-
-        frame: image to add to queue
-        """
-        if self.queue.full():
-            self.queue.get()
-        self.queue.put(frame)
-
-    def _process_frame(self):
-        """
-        process next frame in queue (blocks if no frame in queue)
-        """
-        return self.model.track(self.queue.get(),
-                                persist=True,
-                                device=self.device)
-
-    def loop(self, pipe: Connection):
-        """
-        Start a tracking loop.
-
-        pipe: child pipe to receive frames from and send results to
-        """
-        while True:
-            image = pipe.recv()
-            results = self.new_frame(image)
-            pipe.send(results)
-
-    def mt_loop(self):
-        """
-        Starts the model loop function in a separate python process
-
-        returns (handle, pipe)
-        where:
-            handle: multiprocessing.Process is the handle of the process that's
-                been started
-            pipe: multiprocessing.connection.Connection
-                a pipe to send frames to and receive segmentation output
-        """
-
-        (parent_p, child_p) = Pipe()
-        handle = Process(target=self.loop, args=(child_p))
-        handle.start()
-
-        return (handle, parent_p)
 
 
 class Calibrater:
@@ -70,6 +8,7 @@ class Calibrater:
         self.px_per_mm = px_per_mm
         self.square_mm = square_mm
         self.board_dims = board_dims
+        self.M = None
 
         square_px = px_per_mm * square_mm
         self.padding_px = 3 * square_px
@@ -117,6 +56,7 @@ class Calibrater:
         pts1 = self._pts1(corners)
 
         M = cv2.getPerspectiveTransform(pts1, self.pts2)
+        self.M = np.copy(M)
 
         return (True, M, corners)
 
@@ -165,38 +105,3 @@ class Calibrater:
         image = cv2.warpPerspective(image, M, (img_x_px, img_y_px))
         return (True, image)
 
-
-def args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("video_path")
-    parser.add_argument("-m", "--model_path", default="yolov8n.pt")
-
-    return parser.parse_args()
-
-
-def main(args):
-    capture = cv2.VideoCapture(args.video_path)
-    model = YOLO(args.model_path, verbose=False)
-    tracker = Tracker(model)
-    calibrater = Calibrater(10, 20, [6, 8])
-
-    (tracker_handle, p_tracker) = tracker.mt_loop()
-
-    while capture.isOpened():
-        success, frame = capture.read()
-
-        if not success:
-            break
-
-        tracker.push_frame(frame)
-
-        if p_tracker.poll():
-            annotated = p_tracker.recv().plot()
-            cv2.imshow("tracking", annotated)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-
-if __name__ == "__main__":
-    sys.exit(main(args()))
