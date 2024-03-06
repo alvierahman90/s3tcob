@@ -12,7 +12,7 @@ TLS([Tracking Loop])
 --> SEND_RES[Send results to Transformer Loop]
 --> GET_FRAME
 
-TFXL([Transformer Lop])
+TFXL([Transformer Loop])
 --> GET_RES[Get next result from Tracking Loop]
 --> TFX[Transform all points through calibrated matrix]
 --> SEND_TFX[Send transformed points to Decider Loop]
