@@ -10,6 +10,7 @@ import numpy as np
 import os
 
 from calibrater import Calibrater
+
 print("imported libraries")
 
 
@@ -20,9 +21,11 @@ def args():
 
     return parser.parse_args()
 
-def tracking_loop(video_path: os.PathLike, parent_p: Connection, model = 'yolov8n.pt'):
+
+def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.pt"):
     print("tracking_loop: importing yolo")
     from ultralytics import YOLO
+
     print("tracking_loop: imported yolo")
 
     print("tracking_loop: loading model")
@@ -41,44 +44,47 @@ def tracking_loop(video_path: os.PathLike, parent_p: Connection, model = 'yolov8
         for result in results:
             for box in result.boxes:
                 p = box.xyxy
-                ret.append({
-                    "class": box.cls,
-                    "xyxy": list(p),
-                    })
-        print("sending results {len(ret)=}")
+                ret.append(
+                    {
+                        "class": box.cls,
+                        "xyxy": list(p),
+                    }
+                )
+        # print(f"sending results {len(ret)=}")
         parent_p.send(ret)
         cv2.imshow("boxes", results[0].plot())
+        cv2.waitKey(1)
 
 
 def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
-
     def perspective_transform(points):
         try:
             return cv2.perspectiveTransform(np.array([[points]]), M)[0][0]
         except:
             return np.array([0, 0])
 
-
     while True:
         results = tracker_p.recv()
         ret = []
         for result in results:
-            ret.append({
-                "class": result['class'],
-                "xyxy": result['xyxy'],
-                "xyxy_transformed": [
-                    perspective_transform(result['xyxy'][:2]),
-                    perspective_transform(result['xyxy'][2:])
+            ret.append(
+                {
+                    "class": result["class"],
+                    "xyxy": result["xyxy"],
+                    "xyxy_transformed": [
+                        perspective_transform(result["xyxy"][:2]),
+                        perspective_transform(result["xyxy"][2:]),
                     ],
-                })
+                }
+            )
 
-        print(f"{ret=}")
+        # print(f"{ret=}")
         output_p.send(ret)
 
 
 def main(args):
     print("Initialising system and loading model...")
-    calibrater = Calibrater(px_per_mm=10, square_mm=20, board_dims=[3, 11])
+    calibrater = Calibrater(px_per_mm=10, square_mm=20, board_dims=[3, 9])
 
     print(f"Calibrating...")
     capture = cv2.VideoCapture(args.video_path)
@@ -101,7 +107,9 @@ def main(args):
     print("Creating tracker thread")
     q = Queue()
     (tracker_p, tracker_child_p) = Pipe()
-    tracker_handle = Process(target=tracking_loop, args=(args.video_path, tracker_child_p))
+    tracker_handle = Process(
+        target=tracking_loop, args=(args.video_path, tracker_child_p)
+    )
     tracker_handle.start()
 
     print("Creating transformer loop")
@@ -109,13 +117,12 @@ def main(args):
     xf_handle = Process(target=transformer_loop, args=(tracker_p, xf_child_p, M))
     xf_handle.start()
 
-
     while True:
         if xf_p.poll():
             recv = xf_p.recv()
-            print(f"        :::{recv=}")
+            print(f"xf_p.recv()={recv}")
 
-        #if transformer_p.poll():
+        # if transformer_p.poll():
         #    recv = transformer_p.recv()
         #    annotated = recv["results"].plot()
         #    processed = recv["processed"]
