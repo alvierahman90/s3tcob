@@ -1,6 +1,6 @@
 # :video_camera: s3tcob :robot:
 
-> "software that tracks thing on a conveyor belt"
+> "software that tracks things on a conveyor belt"
 >
 > Track objects from a video stream using image segmentation AI, and convert into real world
 > 2D coordinates in real time.
