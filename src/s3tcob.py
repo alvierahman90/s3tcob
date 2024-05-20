@@ -18,6 +18,72 @@ def args():
     parser = argparse.ArgumentParser()
     parser.add_argument("video_path")
     parser.add_argument("-m", "--model_path", default="yolov8n.pt")
+    parser.add_argument(
+        "-p",
+        "--padding",
+        default=None,
+        help="Padding (in millimetres) as 4 comma separated integers in the top left,top,right,bottom. Overrides --padding.[left, top, right, bottom] options.",
+    )
+    parser.add_argument(
+        "-l",
+        "--padding.left",
+        type=int,
+        default=210,
+        dest="padding_left",
+        help="Left padding (millimetres)",
+    )
+    parser.add_argument(
+        "-t",
+        "--padding.top",
+        type=int,
+        default=200,
+        dest="padding_top",
+        help="Top padding (millimetres)",
+    )
+    parser.add_argument(
+        "-r",
+        "--padding.right",
+        type=int,
+        default=0,
+        dest="padding_right",
+        help="Right padding (millimetres)",
+    )
+    parser.add_argument(
+        "-b",
+        "--padding.bottom",
+        type=int,
+        default=100,
+        dest="padding_bottom",
+        help="Bottom padding (millimetres)",
+    )
+    parser.add_argument(
+        "--px-per-mm",
+        type=int,
+        default=2,
+        dest="px_per_mm",
+        help="Pixels in the output image per real life millimetre",
+    )
+    parser.add_argument(
+        "--board.square-mm",
+        type=float,
+        default=20,
+        dest="board__square_mm",
+        help="Size of squares of the calibration board in millimetres",
+    )
+    parser.add_argument(
+        "--board.dimensions.x",
+        type=int,
+        default=3,
+        dest="board__dimensions__x",
+        help="Width of calibration board (number of crosses)",
+    )
+    parser.add_argument(
+        "--board.dimensions.y",
+        type=int,
+        default=9,
+        dest="board__dimensions__y",
+        help="Height of calibration board (number of crosses)",
+    )
 
     return parser.parse_args()
 
@@ -85,15 +151,22 @@ def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
 def main(args):
     print("Initialising system and loading model...")
 
-    padding_left = 210
-    padding_top = 200
-    padding_right = 0
-    padding_bottom = 100
+    if args.padding is not None:
+        padding = args.padding.split(",")
+        padding_left = int(padding[0])
+        padding_top = int(padding[1])
+        padding_right = int(padding[2])
+        padding_bottom = int(padding[3])
+    else:
+        padding_left = args.padding_left
+        padding_top = args.padding_top
+        padding_right = args.padding_right
+        padding_bottom = args.padding_bottom
 
     calibrater = Calibrater(
-        px_per_mm=10,
-        square_mm=20,
-        board_dims=[3, 9],
+        px_per_mm=args.px_per_mm,
+        square_mm=args.board__square__mm,
+        board_dims=[args.board__dimensions__x, args.board__dimensions__y],
         padding=PaddingMillimetres(
             padding_left, padding_top, padding_right, padding_bottom
         ),
