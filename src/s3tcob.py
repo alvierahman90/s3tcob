@@ -9,7 +9,7 @@ import argparse
 import numpy as np
 import os
 
-from calibrater import Calibrater
+from calibrater import Calibrater, PaddingMillimetres
 
 print("imported libraries")
 
@@ -84,9 +84,22 @@ def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
 
 def main(args):
     print("Initialising system and loading model...")
-    calibrater = Calibrater(px_per_mm=10, square_mm=20, board_dims=[3, 9])
 
-    print(f"Calibrating...")
+    padding_left = 210
+    padding_top = 200
+    padding_right = 0
+    padding_bottom = 100
+
+    calibrater = Calibrater(
+        px_per_mm=10,
+        square_mm=20,
+        board_dims=[3, 9],
+        padding=PaddingMillimetres(
+            padding_left, padding_top, padding_right, padding_bottom
+        ),
+    )
+
+    print("Calibrating...")
     capture = cv2.VideoCapture(args.video_path)
 
     while capture.isOpened():
@@ -105,7 +118,6 @@ def main(args):
     capture.release()
 
     print("Creating tracker thread")
-    q = Queue()
     (tracker_p, tracker_child_p) = Pipe()
     tracker_handle = Process(
         target=tracking_loop, args=(args.video_path, tracker_child_p)
