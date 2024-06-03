@@ -8,6 +8,8 @@ import sys
 import argparse
 import numpy as np
 import os
+import serial
+import time
 
 from calibrater import Calibrater, PaddingMillimetres
 
@@ -16,8 +18,20 @@ print("imported libraries")
 
 def args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("video_path")
+    parser.add_argument("--video_path", default="/dev/video0")
     parser.add_argument("-m", "--model_path", default="yolov8n.pt")
+    parser.add_argument(
+        "-s", "--serial.port", default="/dev/ttyUSB0", dest="serial_port"
+    )
+    parser.add_argument(
+        "--shaker-table.pwm.duty", default=100, type=int, dest="shaker_table__pwm__duty"
+    )
+    parser.add_argument(
+        "--conveyor.pwm.duty", default=255, type=int, dest="conveyor__pwm__duty"
+    )
+    parser.add_argument(
+        "--serial.baud-rate", default=9600, type=int, dest="serial_baud_rate"
+    )
     parser.add_argument(
         "-p",
         "--padding",
@@ -67,7 +81,7 @@ def args():
         "--board.square-mm",
         type=float,
         default=20,
-        dest="board__square_mm",
+        dest="board__square__mm",
         help="Size of squares of the calibration board in millimetres",
     )
     parser.add_argument(
@@ -148,6 +162,46 @@ def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
         output_p.send(ret)
 
 
+def decider_loop(pipe: Connection, port: str, baud_rate: int):
+    ser = serial.Serial(port, baud_rate, timeout=1)
+
+    while True:
+        coords = pipe.recv()
+        while ser.in_waiting > 0:
+            response = ser.read_until()
+            print(f"decider_loop: got serial response: {response}")
+
+        coords = [
+            {
+                "class": c["class"],
+                "cog": [
+                    (c["xyxy_transformed"][0][0] + c["xyxy_transformed"][1][0]) / 2,
+                    (c["xyxy_transformed"][0][1] + c["xyxy_transformed"][1][1]) / 2,
+                ],
+            }
+            for c in coords
+            if int(c["class"]) != 2  # labels have class 2
+        ]
+
+        coords.sort(key=lambda c: c["cog"][1])  # sort by y axis of COG
+
+        if len(coords) < 1:
+            continue
+
+        colour = int(
+            coords[0]["class"]
+        )  # TODO: get bottle closest to gate that has not passed gate
+
+        print(f"decider_loop: {colour=}")
+
+        if colour == 0:
+            print("g0020")
+            ser.write("g0020".encode("utf-8"))  # TODO change to an angle
+        else:
+            print("g0050")
+            ser.write("g0050".encode("utf-8"))  # TODO change to an angle
+
+
 def main(args):
     print("Initialising system and loading model...")
 
@@ -193,7 +247,7 @@ def main(args):
     print("Creating tracker thread")
     (tracker_p, tracker_child_p) = Pipe()
     tracker_handle = Process(
-        target=tracking_loop, args=(args.video_path, tracker_child_p)
+        target=tracking_loop, args=(args.video_path, tracker_child_p, args.model_path)
     )
     tracker_handle.start()
 
@@ -202,17 +256,46 @@ def main(args):
     xf_handle = Process(target=transformer_loop, args=(tracker_p, xf_child_p, M))
     xf_handle.start()
 
-    while True:
-        if xf_p.poll():
-            recv = xf_p.recv()
-            print(f"xf_p.recv()={recv}")
+    print("Starting decidero loop")
+    decider_handle = Process(
+        target=decider_loop, args=(xf_p, args.serial_port, args.serial_baud_rate)
+    )
+    decider_handle.start()
 
-        # if transformer_p.poll():
-        #    recv = transformer_p.recv()
-        #    annotated = recv["results"].plot()
-        #    processed = recv["processed"]
-        #    print(f"{processed=}")
-        #    cv2.imshow("tracking", annotated)
+    print("Creating serial connection")
+    ser = serial.Serial(args.serial_port, args.serial_baud_rate, timeout=1)
+
+    print(f"Starting shaker table ({args.shaker_table__pwm__duty=})")
+    cmd = f"s{int(args.shaker_table__pwm__duty):04}\n".encode()
+    print(f"SENDING: {cmd}")
+    ser.write(cmd)
+    while ser.in_waiting > 0:
+        response = ser.read_until()
+        print(f"got serial response: {response}")
+
+    print(f"Starting conveyor ({args.conveyor__pwm__duty=})")
+    cmd = f"c{int(args.conveyor__pwm__duty):04}\n".encode()
+    print(f"SENDING: {cmd}")
+    ser.write(cmd)
+    while ser.in_waiting > 0:
+        response = ser.read_until()
+        print(f"got serial response: {response}")
+
+    print("Closing setup serial connection")
+    ser.close()
+
+    while True:
+        pass
+        # if xf_p.poll():
+        # recv = xf_p.recv()
+        # print(f"xf_p.recv()={recv}")
+
+    # if transformer_p.poll():
+    #    recv = transformer_p.recv()
+    #    annotated = recv["results"].plot()
+    #    processed = recv["processed"]
+    #    print(f"{processed=}")
+    #    cv2.imshow("tracking", annotated)
 
 
 if __name__ == "__main__":

@@ -26,10 +26,10 @@ class Calibrater:
         grid_x_px = square_px * (self.board_dims[0] - 1)
         grid_y_px = square_px * (self.board_dims[1] - 1)
 
-        padding_left = self.padding * self.px_per_mm
-        padding_top = self.padding * self.px_per_mm
-        padding_right = self.padding * self.px_per_mm
-        padding_bottom = self.padding * self.px_per_mm
+        padding_left = self.padding.left * self.px_per_mm
+        padding_top = self.padding.top * self.px_per_mm
+        padding_right = self.padding.right * self.px_per_mm
+        padding_bottom = self.padding.bottom * self.px_per_mm
 
         print(f"{self.board_dims[0]=} {self.board_dims[1]} {grid_x_px=} {grid_y_px=}")
 
