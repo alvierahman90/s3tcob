@@ -24,13 +24,13 @@ def args():
         "-s", "--serial.port", default="/dev/ttyUSB0", dest="serial_port"
     )
     parser.add_argument(
+        "--serial.baud-rate", default=9600, type=int, dest="serial_baud_rate"
+    )
+    parser.add_argument(
         "--shaker-table.pwm.duty", default=100, type=int, dest="shaker_table__pwm__duty"
     )
     parser.add_argument(
-        "--conveyor.pwm.duty", default=255, type=int, dest="conveyor__pwm__duty"
-    )
-    parser.add_argument(
-        "--serial.baud-rate", default=9600, type=int, dest="serial_baud_rate"
+        "--conveyor.pwm.duty", default=60, type=int, dest="conveyor__pwm__duty"
     )
     parser.add_argument(
         "-p",
@@ -102,7 +102,9 @@ def args():
     return parser.parse_args()
 
 
-def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.pt", ready_p=None):
+def tracking_loop(
+    video_path: os.PathLike, parent_p: Connection, model="yolov8n.pt", ready_p=None
+):
     print("tracking_loop: importing yolo")
     from ultralytics import YOLO
 
@@ -167,7 +169,9 @@ def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
         output_p.send(ret)
 
 
-def decider_loop(pipe: Connection, port: str, baud_rate: int, conveyor_speed: int, shaker_speer: int):
+def decider_loop(
+    pipe: Connection, port: str, baud_rate: int, conveyor_speed: int, shaker_speer: int
+):
     ser = serial.Serial(port, baud_rate, timeout=1)
 
     while True:
@@ -262,7 +266,8 @@ def main(args):
     (tracker_p, tracker_child_p) = Pipe()
     (tracker_ready_p, tracker_ready_child_p) = Pipe()
     tracker_handle = Process(
-        target=tracking_loop, args=(args.video_path, tracker_child_p, args.model_path, tracker_ready_child_p)
+        target=tracking_loop,
+        args=(args.video_path, tracker_child_p, args.model_path, tracker_ready_child_p),
     )
     tracker_handle.start()
 
@@ -278,7 +283,7 @@ def main(args):
     decider_handle.start()
 
     print("Waiting for tracker to start...")
-    tracker_ready_p.recv() # tracker will send something when it is first ready. wait for it before staring shaking or conveying
+    tracker_ready_p.recv()  # tracker will send something when it is first ready. wait for it before staring shaking or conveying
 
     print("Creating serial connection")
     ser = serial.Serial(args.serial_port, args.serial_baud_rate, timeout=1)

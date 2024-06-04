@@ -62,6 +62,12 @@ without issue.
    The software accepts a few options, all as command line parameters:
 
    - Model path (`-m PATH`, `--model_path PATH`) - The path to the trained segmentation model. If none is provided, it defaults to `yolov8n-seg.pt`, which will be downloaded if it is not present.
+   - Serial port (`-s`, `--serial.port`) - The serial port to connect to. Defaults to `/dev/ttyUSB0`
+   - Serial baud rate (`--serial.baud-rate`) - The serial port baud rate to communicate with. Defaults to `9600`.
+   - Shaker table speed (`--shaker-table.pwm.duty`) - A value between 0 and 255 to decide which
+     dictates what speed the shaker table motor will spin at. Defaults to `100`.
+   - Conveyor speed (`--conveyor.pwm.duty`) - A value between 0 and 255 to decide which dictates
+     the speed at which the conveyor belt spins at. Defaults to `60`.
    - Padding (`-p`, `--padding PADDING`) - The padding (in millimetres) around the checkerboard of the transformed image,
      supplied as four comma separated integers in the order `left,top,right,bottom`.
 
