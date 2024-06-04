@@ -102,7 +102,7 @@ def args():
     return parser.parse_args()
 
 
-def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.pt"):
+def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.pt", ready_p=None):
     print("tracking_loop: importing yolo")
     from ultralytics import YOLO
 
@@ -113,6 +113,8 @@ def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.
     print("tracking_loop: model loaded, starting video capture")
     capture = cv2.VideoCapture(video_path)
     print("tracking_loop: video capture created")
+
+    ready = False
 
     while capture.isOpened():
         success, frame = capture.read()
@@ -126,12 +128,15 @@ def tracking_loop(video_path: os.PathLike, parent_p: Connection, model="yolov8n.
                 p = box.xyxy
                 ret.append(
                     {
-                        "class": box.cls,
-                        "xyxy": list(p),
+                        "class": box.cls.detach().cpu(),
+                        "xyxy": list(p.detach().cpu()),
                     }
                 )
         # print(f"sending results {len(ret)=}")
         parent_p.send(ret)
+        if not ready:
+            ready = True
+            ready_p.send(True)
         cv2.imshow("boxes", results[0].plot())
         cv2.waitKey(1)
 
@@ -162,7 +167,7 @@ def transformer_loop(tracker_p: Connection, output_p: Connection, M: np.array):
         output_p.send(ret)
 
 
-def decider_loop(pipe: Connection, port: str, baud_rate: int):
+def decider_loop(pipe: Connection, port: str, baud_rate: int, conveyor_speed: int, shaker_speer: int):
     ser = serial.Serial(port, baud_rate, timeout=1)
 
     while True:
@@ -194,12 +199,21 @@ def decider_loop(pipe: Connection, port: str, baud_rate: int):
 
         print(f"decider_loop: {colour=}")
 
+        cmd = f"c{conveyor_speed:04}\n".encode()
+        print(cmd)
+        ser.write(cmd)
+        cmd = f"s{shaker_speed:04}\n".encode()
+        print(cmd)
+        ser.write(cmd)
+
         if colour == 0:
             print("g0020")
-            ser.write("g0020".encode("utf-8"))  # TODO change to an angle
+            ser.write("g0020\n".encode("utf-8"))
+            ser.flush()
         else:
             print("g0050")
-            ser.write("g0050".encode("utf-8"))  # TODO change to an angle
+            ser.write("g0050\n".encode("utf-8"))
+            ser.flush()
 
 
 def main(args):
@@ -246,8 +260,9 @@ def main(args):
 
     print("Creating tracker thread")
     (tracker_p, tracker_child_p) = Pipe()
+    (tracker_ready_p, tracker_ready_child_p) = Pipe()
     tracker_handle = Process(
-        target=tracking_loop, args=(args.video_path, tracker_child_p, args.model_path)
+        target=tracking_loop, args=(args.video_path, tracker_child_p, args.model_path, tracker_ready_child_p)
     )
     tracker_handle.start()
 
@@ -262,21 +277,26 @@ def main(args):
     )
     decider_handle.start()
 
+    print("Waiting for tracker to start...")
+    tracker_ready_p.recv() # tracker will send something when it is first ready. wait for it before staring shaking or conveying
+
     print("Creating serial connection")
     ser = serial.Serial(args.serial_port, args.serial_baud_rate, timeout=1)
-
-    print(f"Starting shaker table ({args.shaker_table__pwm__duty=})")
-    cmd = f"s{int(args.shaker_table__pwm__duty):04}\n".encode()
-    print(f"SENDING: {cmd}")
-    ser.write(cmd)
-    while ser.in_waiting > 0:
-        response = ser.read_until()
-        print(f"got serial response: {response}")
 
     print(f"Starting conveyor ({args.conveyor__pwm__duty=})")
     cmd = f"c{int(args.conveyor__pwm__duty):04}\n".encode()
     print(f"SENDING: {cmd}")
     ser.write(cmd)
+    ser.flush()
+    while ser.in_waiting > 0:
+        response = ser.read_until()
+        print(f"got serial response: {response}")
+
+    print(f"Starting shaker table ({args.shaker_table__pwm__duty=})")
+    cmd = f"s{int(args.shaker_table__pwm__duty):04}\n".encode()
+    print(f"SENDING: {cmd}")
+    ser.write(cmd)
+    ser.flush()
     while ser.in_waiting > 0:
         response = ser.read_until()
         print(f"got serial response: {response}")
@@ -299,4 +319,20 @@ def main(args):
 
 
 if __name__ == "__main__":
-    sys.exit(main(args()))
+    args = args()
+    try:
+        sys.exit(main(args))
+    except:
+        ser = serial.Serial(args.serial_port, args.serial_baud_rate, timeout=1)
+
+        cmd = f"c{0:04}\n".encode()
+        print(f"SENDING: {cmd}")
+        ser.write(cmd)
+
+        cmd = f"s{0:04}\n".encode()
+        print(f"SENDING: {cmd}")
+        ser.write(cmd)
+
+        cmd = "g0020\n".encode("utf-8")
+        print(f"SENDING: {cmd}")
+        ser.write(cmd)
