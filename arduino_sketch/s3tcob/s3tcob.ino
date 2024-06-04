@@ -1,90 +1,60 @@
 #include <Servo.h>
 #include "CytronMotorDriver.h"
-#include "bixp.c"
 
-#define SHAKER_MOTOR_PWM 1
-#define SHAKER_MOTOR_DIR 2
+#define SHAKER_MOTOR_PWM 5
+#define SHAKER_MOTOR_DIR 8
 #define CONVEYOR_MOTOR_PWM 3
 #define CONVEYOR_MOTOR_DIR 4
-#define GATE_SERVO_PIN 5
-#define BOX_FAN_PWM 6
+#define GATE_SERVO_PIN 6
+#define BOX_FAN_PWM 9
 
 #define SERIAL_BUFFER_MAX_LENGTH 256
+
+
 
 // Configure the motor drivers
 CytronMD shaker_motor(PWM_DIR, SHAKER_MOTOR_PWM, SHAKER_MOTOR_DIR);
 CytronMD conveyor_motor(PWM_DIR, CONVEYOR_MOTOR_PWM, CONVEYOR_MOTOR_DIR);
-
 // Configure servo motor
 Servo gate_servo;
-
-// Error flag indicates unrecoverable error, which if set will have the arduino disable both motors
-// and not turn on again until power is disconnected.
-int err = 0;
-
-char serial_buffer[SERIAL_BUFFER_MAX_LENGTH] = { 0 };
-char serial_checksum[SERIAL_BUFFER_MAX_LENGTH] = { 0 };
-unsigned int serial_buffer_len = 0;
-unsigned int serial_checksum_len = 0;
-char bixp_state = BIXP_STATE_DEFAULT;
-unsigned long bananas_time = millis();
-char beans_ready = 0;
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
-  pinMode(9,OUTPUT); // Timer 1A
+      pinMode(9,OUTPUT); // Timer 1A
   setupTimer1();
-  gate_servo.attach(GATE_SERVO_PIN);
+    gate_servo.attach(GATE_SERVO_PIN);
+  Serial.println("OK: Online!");
+  gate_servo.write(20);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:  
-  if (err != 0) {
-    shaker_motor.setSpeed(0);
-    conveyor_motor.setSpeed(0);
+  if (!Serial.available()) return;
+  
+  String buf = Serial.readStringUntil('\n');
+  if (buf.length() < 5) {
+    Serial.println("ERR: Input too short!");
     return;
   }
 
-  char response;
-  unsigned int bixp_rc;
-  int rc;
+  char object = buf[0];
+  int value = ((buf[1] - '0') * 1000) + ((buf[2] - '0') * 100) + ((buf[3] - '0') * 10) + (buf[4] - '0');
+  
 
-  while (Serial.available()) {
-    char next_byte = Serial.read();
-    bixp_rc = bixp_handle_serial(serial_buffer, SERIAL_BUFFER_MAX_LENGTH, &serial_buffer_len, serial_checksum, SERIAL_BUFFER_MAX_LENGTH, &serial_checksum_len, &bixp_state, next_byte, &response);
+  Serial.print("OK: object: ");
+  Serial.print(object);
+  Serial.print(" value: ");
+  Serial.println(value);
 
-    if (bixp_rc & BIXP_HANDLE_SERIAL_RESPONSE) Serial.write(response);
-    else if (bixp_rc & BIXP_HANDLE_SERIAL_BANANAS) bananas_time = millis();
-    else if (bixp_rc & (BIXP_HANDLE_SERIAL_UNHANDLED | BIXP_HANDLE_SERIAL_NO_BEANS | BIXP_HANDLE_SERIAL_CKSUM_FAILED)) {
-      err = 1;
-      return;
-    } else if (bixp_rc & BIXP_HANDLE_SERIAL_BEANS_READY) {
-      beans_ready = 1;
-    }
-  }
-
-   if (beans_ready) {
-    rc = handle_command(serial_buffer);
-    if (rc != 0) {
-      err = 1;
-      return;
-    }
-   }
-}
-
-// first byte defines device ID (0: conveyor motor, 1: shaker motor, 2: servo motor, 3: box fan),
-// second and third bytes, s and t, define value, v, where v = s << 8 + t
-int handle_command(char cmd[]) {
-  int value = cmd[1] << 8 + cmd[2];
-
-  switch (cmd[1]) {
-    case 0: conveyor_motor.setSpeed(value); break;
-    case 1: shaker_motor.setSpeed(value); break;
-    case 3: gate_servo.write(value); break;
-    case 4: setPWM1A((float)value/100); break;
+  switch (object) {
+    case 's': shaker_motor.setSpeed(value); break;
+    case 'c': conveyor_motor.setSpeed(value); break;
+    case 'f': Serial.println("OK: setting fan"); setPWM1A((float)value / 1024.0f); break;
+    case 'g': gate_servo.write(value); break;
+    default: Serial.print("ERR: Undefined object!: "); Serial.print(object);
   }
 }
+
 
 //configure Timer 1 (pins 9,10) to output 25kHz PWM
 void setupTimer1(){
